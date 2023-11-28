@@ -1,126 +1,193 @@
 import pygame
-import random
 import sys
 import chess
-import os
 
-# Initialize Pygame
+# Initialize pygame
 pygame.init()
 
-# Hardcoded values for the board
+# Board dimensions and colors
 width = 480
 height = 480
 cell = width // 8
-white = (193,205,205)
-black = (131,139,139)
-highlight_color = (255, 255, 0)  # Yellow for highlight
+white = (255, 255, 255)
+black = (0, 0, 0)
 
-# Load images
-def load_images(path):
-    pieces_images = {}
-    pieces = ['bishop', 'king', 'knight', 'pawn', 'queen', 'rook']
-    for piece in pieces:
-        for color in ['b', 'w']:
-            image_path = os.path.join(path, f'{color}_{piece}.png')
-            pieces_images[f'{color}_{piece}'] = pygame.image.load(image_path).convert_alpha()
-            pieces_images[f'{color}_{piece}'] = pygame.transform.scale(pieces_images[f'{color}_{piece}'], (cell, cell))
-    return pieces_images
+# Initialize the chess board using python-chess
+chess_board = chess.Board()
 
-# Initialize a chess board
-board = chess.Board()
+# Initialize font
+font = pygame.font.Font(None, 36)
 
-# Function to draw highlighted moves
-def draw_highlights(screen, board, square):
-    moves = list(board.legal_moves)
-    for move in moves:
-        if move.from_square == square:
-            end_row, end_col = divmod(move.to_square, 8)
-            pygame.draw.rect(screen, highlight_color, (end_col * cell, end_row * cell, cell, cell), 5)
+# Convert chess square to pixel coordinates
+def chess_square_to_pixels(square):
+    x = (square % 8) * cell
+    y = (7 - square // 8) * cell
+    return x, y
 
-# Function to draw the board and pieces
-def draw_board(screen, pieces_images):
+# Convert pixel coordinates to chess square
+def pixels_to_chess_square(pos):
+    col = pos[0] // cell
+    row = 7 - (pos[1] // cell)
+    return chess.square(col, row)
+
+# Draw the chess board
+def draw_board(screen):
     for row in range(8):
         for col in range(8):
             color = white if (row + col) % 2 == 0 else black
             pygame.draw.rect(screen, color, (col * cell, row * cell, cell, cell))
-            piece = board.piece_at(chess.square(col, row))
-            if piece:
-                piece_color = 'w' if piece.color else 'b'
-                piece_type = {
-                    'R': 'rook', 'N': 'knight', 'B': 'bishop',
-                    'Q': 'queen', 'K': 'king', 'P': 'pawn'
-                }[piece.symbol().upper()]
-                screen.blit(pieces_images[f'{piece_color}_{piece_type}'], (col * cell, row * cell))
 
-# Function to display game status
-def display_status(screen, board):
-    font = pygame.font.SysFont(None, 36)
+# Draw chess pieces
+def draw_pieces(screen, board):
+    grey = (128, 128, 128)  # A shade of grey for white pieces
+    red = (255, 0, 0)  # RGB for red color for black pieces
+
+    for square in chess.SQUARES:
+        piece = board.piece_at(square)
+        if piece:
+            x, y = chess_square_to_pixels(square)
+            # Use red for black pieces (lowercase letters) and grey for white pieces (uppercase letters)
+            piece_color = red if piece.symbol().islower() else grey
+            screen.blit(font.render(piece.symbol(), True, piece_color), (x + cell // 4, y + cell // 4))
+
+# Highlight legal moves for a selected piece
+def highlight_legal_moves(screen, board, square):
+    for move in board.legal_moves:
+        if move.from_square == square:
+            highlight_square(screen, move.to_square, (0, 255, 0, 100))  # Green color
+
+# Function to highlight a square
+def highlight_square(screen, square, color):
+    x, y = chess_square_to_pixels(square)
+    s = pygame.Surface((cell, cell), pygame.SRCALPHA)  # per-pixel alpha
+    s.fill(color)  # notice the alpha value in the color
+    screen.blit(s, (x, y))
+
+
+# Evaluate board for AI
+def evaluate_board(board):
     if board.is_checkmate():
-        text = font.render('Checkmate', True, (255, 0, 0))
-    elif board.is_stalemate():
-        text = font.render('Stalemate', True, (255, 0, 0))
-    elif board.is_check():
-        text = font.render('Check', True, (255, 255, 0))
+        if board.turn:
+            return float('-inf')  # AI lost
+        else:
+            return float('inf')   # AI won
+    if board.is_stalemate():
+        return 0
+    if board.is_insufficient_material():
+        return 0
+
+    eval = 0
+    piece_values = {'P': 1, 'N': 3, 'B': 3.1, 'R': 5, 'Q': 9, 'K': 0}
+    for (piece, value) in piece_values.items():
+        eval += len(board.pieces(chess.PIECE_SYMBOLS.index(piece.lower()), chess.WHITE)) * value
+        eval -= len(board.pieces(chess.PIECE_SYMBOLS.index(piece.lower()), chess.BLACK)) * value
+    return eval
+
+
+# Minimax with Alpha-Beta Pruning
+def minimax(board, depth, alpha, beta, maximizing_player):
+    if depth == 0 or board.is_game_over():
+        return evaluate_board(board)
+
+    if maximizing_player:
+        max_eval = float('-inf')
+        for move in board.legal_moves:
+            board.push(move)
+            eval = minimax(board, depth - 1, alpha, beta, False)
+            board.pop()
+            max_eval = max(max_eval, eval)
+            alpha = max(alpha, eval)
+            if beta <= alpha:
+                break
+        return max_eval
     else:
-        text = font.render('', True, (0, 0, 0))
-    screen.blit(text, (0, 0))
+        min_eval = float('inf')
+        for move in board.legal_moves:
+            board.push(move)
+            eval = minimax(board, depth - 1, alpha, beta, True)
+            board.pop()
+            min_eval = min(min_eval, eval)
+            beta = min(beta, eval)
+            if beta <= alpha:
+                break
+        return min_eval
 
+# Find best move for AI
+def get_best_move(board, depth):
+    best_move = chess.Move.null()
+    best_value = float('-inf')
+    alpha = float('-inf')
+    beta = float('inf')
 
-# Main game loop
+    for move in board.legal_moves:
+        board.push(move)
+        board_value = minimax(board, depth - 1, alpha, beta, False)
+        board.pop()
+        if board_value > best_value:
+            best_value = board_value
+            best_move = move
+    return best_move
+
+# Main function
 def main():
+    global font
     screen = pygame.display.set_mode((width, height))
-    pygame.display.set_caption("Chess")
+    pygame.display.set_caption("Chess Game")
+    clock = pygame.time.Clock()
+    selected_square = None
+    move_from = None
+    ai_color = chess.BLACK  # AI plays as black (actually red)
+    ai_depth = 3            # Depth for minimax
 
-    clock = pygame.time.Clock() #use pygame clock 
-
-    turn = True  # if  its the players turn (this can be used when adding the AI/computer element)
-
-    # Path to the image directory
-    image_path = 'C:/Users/jcfre/OneDrive/Desktop/Pygame Chess Setup/imgs'
-    pieces_images = load_images(image_path)
-
-    running = True
-    selected_piece = None
-    while running:
+    while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                running = False
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.MOUSEBUTTONDOWN and chess_board.turn != ai_color:
+                pos = pixels_to_chess_square(event.pos)
+                if selected_square is None:
+                    selected_square = pos
+                    move_from = pos
+                else:
+                    move_to = pos
+                    if move_from is not None and move_to is not None:
+                        move = chess.Move(move_from, move_to)
+                        if chess_board.is_legal(move):
+                            print(f"Player move: {move}")
+                            chess_board.push(move)
+                    selected_square = None
+                    move_from = None
 
-            # Handle mouse click events
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                x, y = event.pos
-                col, row = x // cell, y // cell
-                square = chess.square(col, row)
-                if selected_piece and chess.Move(selected_piece, square) in board.legal_moves:
-                    board.push(chess.Move(selected_piece, square))
-                    selected_piece = None
-                elif board.piece_at(square):
-                    selected_piece = square
+        screen.fill(white)
+        draw_board(screen)
+        draw_pieces(screen, chess_board)
 
-        # Draw the board and pieces
-        draw_board(screen, pieces_images)
+        
+        # Highlight legal moves if a piece is selected
+        if selected_square is not None and chess_board.color_at(selected_square) == chess_board.turn:
+            highlight_legal_moves(screen, chess_board, selected_square)
 
-        # Highlight legal moves
-        if selected_piece is not None:
-            draw_highlights(screen, board, selected_piece)
 
-        # Display game status
-        display_status(screen, board)
+        # AI's turn
+        if chess_board.turn == ai_color:
+            try:
+                ai_move = get_best_move(chess_board, ai_depth)
+                if ai_move:
+                    print(f"AI move: {ai_move}")
+                    chess_board.push(ai_move)
+                else:
+                    print("No valid AI move found.")
+            except Exception as e:
+                print(f"AI move generation error: {e}")
 
-        # Update the display
+        if chess_board.is_checkmate() or chess_board.is_stalemate():
+            print("Game Over")
+            pygame.quit()
+            sys.exit()
+
         pygame.display.flip()
         clock.tick(30)
-
-        # Check for game end conditions
-        if board.is_checkmate():
-            print("Checkmate!")
-            running = False
-        elif board.is_stalemate():
-            print("Stalemate!")
-            running = False
-
-    pygame.quit()
-
 
 if __name__ == "__main__":
     main()
