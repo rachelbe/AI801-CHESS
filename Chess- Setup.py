@@ -65,24 +65,103 @@ def highlight_square(screen, square, color):
 
 
 # Evaluate board for AI
+pawn_table = [
+    0,  0,  0,  0,  0,  0,  0,  0,
+    5, 10, 10, -20,-20, 10, 10,  5,
+    5, -5,-10,  0,  0,-10, -5,  5,
+    0,  0,  0, 20, 20,  0,  0,  0,
+    5,  5, 10, 25, 25, 10,  5,  5,
+    10, 10, 20, 30, 30, 20, 10, 10,
+    50, 50, 50, 50, 50, 50, 50, 50,
+    0,  0,  0,  0,  0,  0,  0,  0
+]
+
+knight_table = [
+    -50,-40,-30,-30,-30,-30,-40,-50,
+    -40,-20,  0,  5,  5,  0,-20,-40,
+    -30,  5, 10, 15, 15, 10,  5,-30,
+    -30,  0, 15, 20, 20, 15,  0,-30,
+    -30,  5, 15, 20, 20, 15,  5,-30,
+    -30,  0, 10, 15, 15, 10,  0,-30,
+    -40,-20,  0,  0,  0,  0,-20,-40,
+    -50,-40,-30,-30,-30,-30,-40,-50
+]
+
+bishop_table = [
+    -20,-10,-10,-10,-10,-10,-10,-20,
+    -10,  5,  0,  0,  0,  0,  5,-10,
+    -10, 10, 10, 10, 10, 10, 10,-10,
+    -10,  0, 10, 10, 10, 10,  0,-10,
+    -10,  5,  5, 10, 10,  5,  5,-10,
+    -10,  0,  5, 10, 10,  5,  0,-10,
+    -10,  0,  0,  0,  0,  0,  0,-10,
+    -20,-10,-10,-10,-10,-10,-10,-20
+]
+
+rook_table = [
+    0,  0,  0,  5,  5,  0,  0,  0,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    -5,  0,  0,  0,  0,  0,  0, -5,
+    5, 10, 10, 10, 10, 10, 10,  5,
+    0,  0,  0,  0,  0,  0,  0,  0
+]
+
+queen_table = [
+    -20,-10,-10, -5, -5,-10,-10,-20,
+    -10,  0,  5,  0,  0,  0,  0,-10,
+    -10,  5,  5,  5,  5,  5,  0,-10,
+     0,  0,  5,  5,  5,  5,  0, -5,
+    -5,  0,  5,  5,  5,  5,  0, -5,
+    -10,  0,  5,  5,  5,  5,  0,-10,
+    -10,  0,  0,  0,  0,  0,  0,-10,
+    -20,-10,-10, -5, -5,-10,-10,-20
+]
+
+king_table = [
+    20, 30, 10,  0,  0, 10, 30, 20,
+    20, 20,  0,  0,  0,  0, 20, 20,
+    -10,-20,-20,-20,-20,-20,-20,-10,
+    -20,-30,-30,-40,-40,-30,-30,-20,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30
+]
+
 def evaluate_board(board):
     if board.is_checkmate():
-        if board.turn:
-            return float('-inf')  # AI lost
-        else:
-            return float('inf')   # AI won
-    if board.is_stalemate():
-        return 0
-    if board.is_insufficient_material():
+        return float('-inf') if board.turn else float('inf')
+    if board.is_stalemate() or board.is_insufficient_material():
         return 0
 
     eval = 0
     piece_values = {'P': 1, 'N': 3, 'B': 3.1, 'R': 5, 'Q': 9, 'K': 0}
-    for (piece, value) in piece_values.items():
-        eval += len(board.pieces(chess.PIECE_SYMBOLS.index(piece.lower()), chess.WHITE)) * value
-        eval -= len(board.pieces(chess.PIECE_SYMBOLS.index(piece.lower()), chess.BLACK)) * value
-    return eval
+    piece_square_tables = {
+        'P': pawn_table,
+        'N': knight_table,
+        'B': bishop_table,
+        'R': rook_table,
+        'Q': queen_table,
+        'K': king_table
+    }
 
+    for square in chess.SQUARES:
+        piece = board.piece_at(square)
+        if piece:
+            piece_type = piece.symbol().upper()
+            value = piece_values[piece_type]
+            # Add or subtract piece value
+            eval += value if piece.color == chess.WHITE else -value
+            # Adjust evaluation based on piece's position
+            square_value = piece_square_tables.get(piece_type, [0]*64)[square]
+            eval += square_value if piece.color == chess.WHITE else -square_value
+
+    # Additional factors (e.g., pawn structure, mobility) can be added here
+
+    return eval
 
 # Minimax with Alpha-Beta Pruning
 def minimax(board, depth, alpha, beta, maximizing_player):
